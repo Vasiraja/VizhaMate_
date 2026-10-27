@@ -30,7 +30,8 @@ import {
   getGuestSuggestions,
   sortRecentTransactions,
 } from './utils/ledger'
-import { normalizeName, safePositivePaise, validateImportRecord } from './utils/validation'
+import { normalizeName, safePositivePaise } from './utils/validation'
+import { createOfflineSyncCsv, parseOfflineSyncCsv } from './utils/offlineSync'
 import { FunctionsPage, UsersPage } from './components/ManagementPages'
 import GiftEntryPage from './components/GiftEntryPage'
 import TransactionTable from './components/TransactionTable'
@@ -583,69 +584,55 @@ function App() {
     }
   }
 
-  async function handleExportFunction() {
+  function downloadSyncCsv(recordsByStore, fileName) {
+    const csv = createOfflineSyncCsv(recordsByStore, deviceId)
+    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleExportFunction() {
     if (!selectedFunctionId) {
       setStatusMessage('Select a function first.')
       return
     }
 
-    const functionData = functions.find((item) => item.function_id === selectedFunctionId)
     const subsetTransactions = transactions.filter((item) => item.function_id === selectedFunctionId)
-    const relevantPersons = persons.filter((person) =>
-      subsetTransactions.some((transaction) => transaction.person_id === person.person_id)
-    )
-    const relevantAudit = audits.filter((audit) =>
-      subsetTransactions.some((item) => item.transaction_id === audit.transaction_id)
-    )
+    const transactionIds = new Set(subsetTransactions.map((item) => item.transaction_id))
+    const personIds = new Set(subsetTransactions.map((item) => item.person_id))
+    const functionData = functions.filter((item) => item.function_id === selectedFunctionId)
+    const safeName = (functionData[0]?.name || 'function').toLowerCase().replace(/[^a-z0-9]+/g, '-')
 
-    const payload = {
-      export_version: 1,
-      export_id: uuid(),
-      source_device_id: deviceId,
-      exported_at: new Date().toISOString(),
-      function: functionData,
-      persons: relevantPersons,
-      transactions: subsetTransactions,
-      audit_records: relevantAudit,
-      record_count: subsetTransactions.length,
-      total_amount_paise: subsetTransactions
-        .filter((tx) => tx.status === 'valid')
-        .reduce((total, tx) => total + Number(tx.amount_paise || 0), 0),
-    }
-
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    const safeName = `${(functionData?.name || 'function').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
-    link.href = url
-    link.download = `${safeName}-recorder-${selectedUser?.name || 'export'}.json`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-    setStatusMessage('Function export has been downloaded.')
+    downloadSyncCsv({
+      functions: functionData,
+      app_users: users,
+      persons: persons.filter((person) => personIds.has(person.person_id)),
+      gift_transactions: subsetTransactions,
+      transaction_audit: audits.filter((audit) => transactionIds.has(audit.transaction_id)),
+    }, `${safeName}-vizhamate.csv`)
+    setStatusMessage('Function Excel-compatible CSV has been downloaded.')
   }
 
   async function handleImportPreview(file) {
-    const text = await file.text()
-    let parsed
     try {
-      parsed = JSON.parse(text)
-    } catch {
-      setStatusMessage('This import file is not valid JSON.')
-      return
+      const parsed = parseOfflineSyncCsv(await file.text())
+      const preview = { fileName: file.name, ...parsed }
+      setImportPreview((current) => [...current, preview])
+      setStatusMessage(parsed.valid ? 'Excel-compatible CSV passed validation and is ready to merge.' : 'Import rejected because file validation failed.')
+    } catch (error) {
+      setImportPreview((current) => [...current, {
+        fileName: file.name,
+        valid: false,
+        errors: [error.message || 'Unable to read this CSV file.'],
+      }])
+      setStatusMessage('Unable to read the selected CSV file.')
     }
-
-    const result = validateImportRecord(parsed)
-    const preview = {
-      fileName: file.name,
-      valid: result.valid,
-      errors: result.errors,
-      payload: parsed,
-    }
-
-    setImportPreview((current) => [...current, preview])
-    setStatusMessage(result.valid ? 'File passed validation and is ready to import.' : 'Import rejected because file validation failed.')
   }
 
   async function handleImportFiles(event) {
@@ -654,100 +641,119 @@ function App() {
 
     setImportPreview([])
     setImportSummary(null)
-
     await Promise.all(files.map((file) => handleImportPreview(file)))
+    event.target.value = ''
   }
 
   async function handleApplyImport(preview) {
-    const payload = preview.payload
-    const functionId = payload?.function?.function_id
-    if (!functionId) {
-      setStatusMessage('This file is missing the required function ID.')
-      return
-    }
+    if (!preview.valid) return
 
-    if (selectedFunctionId && selectedFunctionId !== functionId) {
-      setStatusMessage('This import belongs to a different function. Select that function before importing.')
-      return
-    }
-
-    const existingTxIds = new Map(transactions.map((item) => [item.transaction_id, item]))
-    let newCount = 0
+    const storeConfig = [
+      ['functions', 'function_id', functions],
+      ['app_users', 'user_id', users],
+      ['persons', 'person_id', persons],
+      ['gift_transactions', 'transaction_id', transactions],
+      ['transaction_audit', 'audit_id', audits],
+    ]
+    const acceptedByStore = {}
     let skippedCount = 0
     let conflictCount = 0
-    const acceptedTransactions = []
+    let totalRecords = 0
 
-    for (const transaction of payload.transactions || []) {
-      const existing = existingTxIds.get(transaction.transaction_id)
-      if (existing) {
-        if (JSON.stringify(existing) === JSON.stringify(transaction)) {
-          skippedCount += 1
-        } else {
-          conflictCount += 1
+    for (const [storeName, idField, currentRecords] of storeConfig) {
+      const importedRecords = preview.recordsByStore[storeName] || []
+      totalRecords += importedRecords.length
+      const existingById = new Map(currentRecords.map((record) => [record[idField], record]))
+      const acceptedById = new Map()
+      for (const record of importedRecords) {
+        const existing = existingById.get(record[idField]) || acceptedById.get(record[idField])
+        if (existing) {
+          if (JSON.stringify(existing) === JSON.stringify(record)) skippedCount += 1
+          else conflictCount += 1
+          continue
         }
-        continue
+        acceptedById.set(record[idField], record)
       }
-
-      if (!Number.isInteger(transaction.amount_paise) || transaction.amount_paise <= 0) {
-        continue
-      }
-
-      acceptedTransactions.push(transaction)
-      newCount += 1
+      acceptedByStore[storeName] = [...acceptedById.values()]
     }
 
+    const availableFunctionIds = new Set([
+      ...functions.map((item) => item.function_id),
+      ...acceptedByStore.functions.map((item) => item.function_id),
+    ])
+    const availablePersonIds = new Set([
+      ...persons.map((item) => item.person_id),
+      ...acceptedByStore.persons.map((item) => item.person_id),
+    ])
+    const availableUserIds = new Set([
+      ...users.map((item) => item.user_id),
+      ...acceptedByStore.app_users.map((item) => item.user_id),
+    ])
+    const invalidTransactions = acceptedByStore.gift_transactions.filter((transaction) =>
+      !availableFunctionIds.has(transaction.function_id) ||
+      !availablePersonIds.has(transaction.person_id) ||
+      !availableUserIds.has(transaction.recorder_id) ||
+      !Number.isInteger(transaction.amount_paise) ||
+      transaction.amount_paise <= 0
+    )
+
+    if (invalidTransactions.length > 0) {
+      setStatusMessage(`Import stopped: ${invalidTransactions.length} gift record(s) have missing linked function, guest, recorder, or valid amount data.`)
+      return
+    }
+
+    const addedRecords = Object.values(acceptedByStore).reduce((total, records) => total + records.length, 0)
+    const importedTransactions = acceptedByStore.gift_transactions
+    const functionIds = new Set(acceptedByStore.functions.map((item) => item.function_id))
     const summary = {
       fileName: preview.fileName,
-      totalRecords: payload.transactions?.length || 0,
-      newTransactions: newCount,
+      totalRecords,
+      addedRecords,
+      newFunctions: acceptedByStore.functions.length,
+      newUsers: acceptedByStore.app_users.length,
+      newGuests: acceptedByStore.persons.length,
+      newTransactions: importedTransactions.length,
+      newAuditRecords: acceptedByStore.transaction_audit.length,
       skippedDuplicates: skippedCount,
       conflicts: conflictCount,
-      acceptedAmountPaise: acceptedTransactions.reduce((total, item) => total + Number(item.amount_paise || 0), 0),
+      acceptedAmountPaise: importedTransactions.reduce((total, item) => total + Number(item.amount_paise || 0), 0),
     }
 
     setImportSummary(summary)
-
-    if (acceptedTransactions.length === 0) {
-      setStatusMessage('No eligible import rows were accepted.')
+    if (addedRecords === 0) {
+      setStatusMessage(conflictCount ? `Nothing imported. ${conflictCount} conflicting record ID(s) were left unchanged.` : 'All records from this file are already on this device.')
       return
     }
 
     const batch = {
       batch_id: uuid(),
       file_name: preview.fileName,
-      function_id: functionId,
-      source_device_id: payload.source_device_id,
+      function_id: functionIds.size === 1 ? [...functionIds][0] : null,
+      source_device_id: preview.metadata.source_device_id,
       imported_at: new Date().toISOString(),
-      imported_count: acceptedTransactions.length,
+      imported_count: addedRecords,
       skipped_count: skippedCount,
       conflict_count: conflictCount,
-      notes: 'Imported via offline JSON merge.',
+      notes: 'Imported via offline Excel-compatible CSV merge.',
     }
-    const importedPersons = payload.persons || []
 
     try {
       await executeBulkWrite((dbTx) => {
-        const transactionStore = dbTx.objectStore('gift_transactions')
-        const personStore = dbTx.objectStore('persons')
-        const batchStore = dbTx.objectStore('import_batches')
-
-        acceptedTransactions.forEach((transaction) => {
-          transactionStore.put(transaction)
+        storeConfig.forEach(([storeName]) => {
+          const store = dbTx.objectStore(storeName)
+          acceptedByStore[storeName].forEach((record) => {
+            store.put(record)
+          })
         })
-
-        importedPersons.forEach((person) => {
-          personStore.put(person)
-        })
-
-        batchStore.put(batch)
+        dbTx.objectStore('import_batches').put(batch)
       })
 
-      setTransactions((current) => [...acceptedTransactions, ...current])
-      setPersons((current) => {
-        const existingIds = new Set(current.map((person) => person.person_id))
-        return [...current, ...importedPersons.filter((person) => !existingIds.has(person.person_id))]
-      })
-      setStatusMessage(`Import completed for ${summary.newTransactions} new records.`)
+      setFunctions((current) => [...current, ...acceptedByStore.functions])
+      setUsers((current) => [...current, ...acceptedByStore.app_users])
+      setPersons((current) => [...current, ...acceptedByStore.persons])
+      setTransactions((current) => [...acceptedByStore.gift_transactions, ...current])
+      setAudits((current) => [...acceptedByStore.transaction_audit, ...current])
+      setStatusMessage(`Import completed: added ${addedRecords} record(s), skipped ${skippedCount} duplicates, and left ${conflictCount} conflicting record(s) unchanged.`)
     } catch (error) {
       setStatusMessage(error.message || 'Unable to apply this import.')
     }
@@ -1124,11 +1130,13 @@ function App() {
             <div className="panel-grid two-columns">
               <div className="panel">
                 <h3>Export current function</h3>
-                <button type="button" onClick={handleExportFunction}>Download JSON export</button>
+                <p>Download this function’s details and entries as a CSV file that opens in Microsoft Excel.</p>
+                <button type="button" onClick={handleExportFunction}>Download Excel CSV</button>
               </div>
               <div className="panel">
-                <h3>Import JSON files</h3>
-                <input type="file" multiple accept="application/json" onChange={handleImportFiles} />
+                <h3>Merge Excel CSV files</h3>
+                <p>Import files exported from VizhaMate on other devices. New functions, guests, users, gifts, and audit history are merged into this device’s offline database. Guest suggestions use the merged local guest list.</p>
+                <input type="file" multiple accept=".csv,text/csv" onChange={handleImportFiles} />
                 {importPreview.length > 0 && (
                   <div className="import-list">
                     {importPreview.map((entry) => (
@@ -1150,9 +1158,14 @@ function App() {
                 <h3>Import summary</h3>
                 <ul className="mini-list">
                   <li><span>File</span><strong>{importSummary.fileName}</strong></li>
+                  <li><span>New functions</span><strong>{importSummary.newFunctions}</strong></li>
+                  <li><span>New users</span><strong>{importSummary.newUsers}</strong></li>
+                  <li><span>New guests</span><strong>{importSummary.newGuests}</strong></li>
                   <li><span>New transactions</span><strong>{importSummary.newTransactions}</strong></li>
+                  <li><span>New audit records</span><strong>{importSummary.newAuditRecords}</strong></li>
+                  <li><span>Total records added</span><strong>{importSummary.addedRecords}</strong></li>
                   <li><span>Skipped duplicate IDs</span><strong>{importSummary.skippedDuplicates}</strong></li>
-                  <li><span>Conflicts</span><strong>{importSummary.conflicts}</strong></li>
+                  <li><span>Conflicts left unchanged</span><strong>{importSummary.conflicts}</strong></li>
                   <li><span>Accepted amount</span><strong>{formatAmount(importSummary.acceptedAmountPaise)}</strong></li>
                 </ul>
               </div>
@@ -1163,28 +1176,18 @@ function App() {
         {activeTab === 'settings' && (
           <section className="page-section">
             <div className="panel">
-              <h3>Settings and backup</h3>
-              <p>IndexedDB is used for the real financial records, and browser storage is not guaranteed forever. Please export JSON backups regularly.</p>
-              <button type="button" onClick={async () => {
-                const payload = {
-                  export_version: 1,
-                  exported_at: new Date().toISOString(),
-                  source_device_id: deviceId,
-                  functions: functions,
+              <h3>Offline database backup</h3>
+              <p>All ledger records stay on this device in IndexedDB. Download a full Excel-compatible CSV backup regularly, then import it on another device to merge the records and make previous guests available for offline suggestions.</p>
+              <button type="button" onClick={() => {
+                downloadSyncCsv({
+                  functions,
+                  app_users: users,
                   persons,
-                  users,
-                  transactions,
-                  audits,
-                }
-                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-                const url = URL.createObjectURL(blob)
-                const link = document.createElement('a')
-                link.href = url
-                link.download = 'vizhamate-full-backup.json'
-                link.click()
-                URL.revokeObjectURL(url)
-                setStatusMessage('Full database backup has been downloaded.')
-              }}>Download full backup</button>
+                  gift_transactions: transactions,
+                  transaction_audit: audits,
+                }, 'vizhamate-full-backup.csv')
+                setStatusMessage('Full database Excel-compatible CSV backup has been downloaded.')
+              }}>Download full Excel CSV backup</button>
             </div>
           </section>
         )}

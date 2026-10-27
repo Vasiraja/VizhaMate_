@@ -1,14 +1,36 @@
-import { normalizeName } from './validation.js'
-
 export function getGuestSuggestions(persons, fullName) {
-    const query = fullName.trim().toLowerCase()
-    if (!query) return []
-
-    const normalizedQuery = normalizeName(query)
+    const normalizeSearchText = (value) => String(value || '')
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .toLocaleLowerCase()
+    const query = normalizeSearchText(fullName).match(/[\p{L}\p{N}]+/gu) || []
+    if (query.length === 0) return []
 
     return persons
-        .filter((person) => normalizeName(person.full_name).includes(normalizedQuery))
+        .map((person, index) => {
+            const name = normalizeSearchText(person.full_name)
+            const nameTokens = name.match(/[\p{L}\p{N}]+/gu) || []
+            let rank = Number.POSITIVE_INFINITY
+
+            if (query.length === 1) {
+                if (nameTokens[0]?.startsWith(query[0])) rank = 0
+                else if (nameTokens.slice(1).some((token) => token.startsWith(query[0]))) rank = 1
+                else if (name.includes(query[0])) rank = 2
+            } else {
+                const firstMatchIndex = nameTokens.findIndex((token) => token.startsWith(query[0]))
+                const queryMatchesInOrder = firstMatchIndex >= 0 && query.every(
+                    (token, queryIndex) => nameTokens[firstMatchIndex + queryIndex]?.startsWith(token)
+                )
+                if (queryMatchesInOrder) rank = firstMatchIndex === 0 ? 0 : 1
+                else if (query.every((token) => name.includes(token))) rank = 2
+            }
+
+            return { person, index, rank }
+        })
+        .filter(({ rank }) => Number.isFinite(rank))
+        .sort((first, second) => first.rank - second.rank || first.index - second.index)
         .slice(0, 8)
+        .map(({ person }) => person)
 }
 
 export function getFunctionTransactions(transactions, functionId) {

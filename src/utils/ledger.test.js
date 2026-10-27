@@ -19,6 +19,24 @@ test('finds normalized guest-name suggestions and limits the list to eight', () 
     assert.deepEqual(getGuestSuggestions(persons, ''), [])
 })
 
+test('matches any name word by its first letter and ranks first-name matches higher', () => {
+    const persons = [
+        { person_id: 'last-name-match', full_name: 'Kavi Raja' },
+        { person_id: 'first-name-match', full_name: 'Vasi Kumar' },
+        { person_id: 'substring-only', full_name: 'Avar' },
+    ]
+
+    assert.equal(getGuestSuggestions(persons, 'v')[0].person_id, 'first-name-match')
+    assert.deepEqual(
+        getGuestSuggestions(persons, 'r').map((person) => person.person_id),
+        ['last-name-match', 'first-name-match', 'substring-only']
+    )
+    assert.deepEqual(
+        getGuestSuggestions([{ person_id: 'vasi-raja', full_name: 'Vasi Raja' }], 'v r').map((person) => person.person_id),
+        ['vasi-raja']
+    )
+})
+
 test('gets transactions for the selected function and sorts newest first', () => {
     const transactions = [
         { transaction_id: 'older', function_id: 'function-1', created_at: '2026-01-01T10:00:00Z' },

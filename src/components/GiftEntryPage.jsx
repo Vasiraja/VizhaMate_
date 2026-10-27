@@ -44,7 +44,7 @@ export default function GiftEntryPage({
                             } : {}),
                         }))}
                     />
-                    {suggestionList.length > 0 && (
+                    {suggestionList.length > 0 && !entryForm.person_id && (
                         <div className="suggestions-box">
                             {suggestionList.map((person) => (
                                 <button
