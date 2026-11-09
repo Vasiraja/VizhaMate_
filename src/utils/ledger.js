@@ -1,29 +1,21 @@
-export function getGuestSuggestions(persons, fullName) {
-    const normalizeSearchText = (value) => String(value || '')
-        .normalize('NFD')
-        .replace(/\p{M}/gu, '')
-        .toLocaleLowerCase()
-    const query = normalizeSearchText(fullName).match(/[\p{L}\p{N}]+/gu) || []
-    if (query.length === 0) return []
+export function normalizePhoneNumber(value) {
+    return String(value || '').replace(/\D/g, '')
+}
+
+export function getGuestSuggestions(persons, phoneNumber) {
+    const query = normalizePhoneNumber(phoneNumber)
+    if (query.length < 3) return []
 
     return persons
         .map((person, index) => {
-            const name = normalizeSearchText(person.full_name)
-            const nameTokens = name.match(/[\p{L}\p{N}]+/gu) || []
-            let rank = Number.POSITIVE_INFINITY
-
-            if (query.length === 1) {
-                if (nameTokens[0]?.startsWith(query[0])) rank = 0
-                else if (nameTokens.slice(1).some((token) => token.startsWith(query[0]))) rank = 1
-                else if (name.includes(query[0])) rank = 2
-            } else {
-                const firstMatchIndex = nameTokens.findIndex((token) => token.startsWith(query[0]))
-                const queryMatchesInOrder = firstMatchIndex >= 0 && query.every(
-                    (token, queryIndex) => nameTokens[firstMatchIndex + queryIndex]?.startsWith(token)
-                )
-                if (queryMatchesInOrder) rank = firstMatchIndex === 0 ? 0 : 1
-                else if (query.every((token) => name.includes(token))) rank = 2
-            }
+            const phone = normalizePhoneNumber(person.phone_number)
+            const rank = !phone || !phone.includes(query)
+                ? Number.POSITIVE_INFINITY
+                : phone === query
+                    ? 0
+                    : phone.startsWith(query)
+                        ? 1
+                        : 2
 
             return { person, index, rank }
         })

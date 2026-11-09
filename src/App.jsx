@@ -28,6 +28,7 @@ import {
   filterTransactions,
   getFunctionTransactions,
   getGuestSuggestions,
+  normalizePhoneNumber,
   sortRecentTransactions,
 } from './utils/ledger'
 import { normalizeName, safePositivePaise } from './utils/validation'
@@ -69,25 +70,24 @@ const emptyFunctionForm = {
   function_date: '',
   location: '',
   street: '',
-  area: '',
   city: '',
-  district: '',
-  pincode: '',
 }
 
 const emptyGuestForm = {
   person_id: '',
   full_name: '',
   street: '',
-  area: '',
   city: '',
-  district: '',
-  pincode: '',
   relationship: '',
   occupation: '',
   phone_number: '',
   notes: '',
-  denominationRows: [{ rowId: 'initial', denominationKey: 'note-500', customAmount: '', quantity: '1' }],
+  denominationRows: DENOMINATIONS.map((denomination) => ({
+    rowId: denomination.key,
+    denominationKey: denomination.key,
+    customAmount: '',
+    quantity: '',
+  })),
 }
 
 function formatFunctionDate(value) {
@@ -212,8 +212,8 @@ function App() {
   )
 
   const suggestionList = useMemo(() => {
-    return getGuestSuggestions(persons, entryForm.full_name)
-  }, [persons, entryForm.full_name])
+    return getGuestSuggestions(persons, entryForm.phone_number)
+  }, [persons, entryForm.phone_number])
 
   const functionTransactions = useMemo(() => {
     return getFunctionTransactions(transactions, selectedFunctionId)
@@ -284,12 +284,12 @@ function App() {
       host_name: functionForm.host_name.trim(),
       function_date: functionForm.function_date,
       street: functionForm.street.trim(),
-      area: functionForm.area.trim(),
+      area: '',
       city: functionForm.city.trim(),
-      district: functionForm.district.trim(),
-      state: 'Tamil Nadu',
-      pincode: functionForm.pincode.trim(),
-      location: formatTamilAddress(functionForm) || functionForm.location.trim(),
+      district: '',
+      state: '',
+      pincode: '',
+      location: formatTamilAddress(functionForm),
       created_at: existingFunction?.created_at || new Date().toISOString(),
     }
 
@@ -316,10 +316,7 @@ function App() {
       function_date: fn.function_date || '',
       location: fn.location || '',
       street: fn.street || (fn.area || fn.city || fn.district ? '' : fn.location || ''),
-      area: fn.area || '',
-      city: fn.city || '',
-      district: fn.district || '',
-      pincode: fn.pincode || '',
+      city: fn.city || fn.area || '',
     })
     setActiveTab('functions')
   }
@@ -361,6 +358,16 @@ function App() {
   }
 
   async function handleDeleteUser(user) {
+    if (!isAdmin) {
+      setStatusMessage('Only an Admin can delete user profiles.')
+      return
+    }
+
+    if (user.role === 'Admin') {
+      setStatusMessage('Admin profiles cannot be deleted.')
+      return
+    }
+
     const linkedTransactions = transactions.filter((item) => item.recorder_id === user.user_id)
     if (linkedTransactions.length > 0) {
       setStatusMessage(`Cannot delete ${user.name}: ${linkedTransactions.length} gift record(s) use this profile. The profile is retained to preserve attribution.`)
@@ -393,10 +400,14 @@ function App() {
       return
     }
 
-    const matchingGuest = persons.find(
-      (person) => person.person_id === entryForm.person_id || person.normalized_name === normalizeName(guestName)
+    const enteredPhone = normalizePhoneNumber(entryForm.phone_number)
+    const matchingGuest = persons.find((person) => person.person_id === entryForm.person_id) || (
+      enteredPhone
+        ? persons.find((person) => normalizePhoneNumber(person.phone_number) === enteredPhone)
+        : undefined
     )
-    const invalidBreakdown = entryForm.denominationRows.some((row) => {
+    const enteredDenominations = entryForm.denominationRows.filter((row) => Number(row.quantity) > 0)
+    const invalidBreakdown = enteredDenominations.some((row) => {
       const unitAmount = denominationAmountPaise(row)
       const quantity = Number(row.quantity)
       return unitAmount === null || !safePositivePaise(unitAmount) || !Number.isInteger(quantity) || quantity <= 0
@@ -435,17 +446,17 @@ function App() {
         person_id: guestPerson?.person_id || uuid(),
         full_name: guestName,
         normalized_name: normalizeName(guestName),
-        street: entryForm.street.trim() || guestPerson?.street || '',
-        area: entryForm.area.trim() || guestPerson?.area || guestPerson?.village || '',
-        village: entryForm.area.trim() || guestPerson?.village || '',
-        city: entryForm.city.trim() || guestPerson?.city || '',
-        district: entryForm.district.trim() || guestPerson?.district || '',
-        state: 'Tamil Nadu',
-        pincode: entryForm.pincode.trim() || guestPerson?.pincode || '',
-        relationship: entryForm.relationship.trim() || guestPerson?.relationship || '',
-        occupation: entryForm.occupation.trim() || guestPerson?.occupation || '',
-        phone_number: entryForm.phone_number.trim() || guestPerson?.phone_number || '',
-        notes: entryForm.notes || guestPerson?.notes || '',
+        street: entryForm.street.trim(),
+        area: '',
+        village: '',
+        city: entryForm.city.trim(),
+        district: '',
+        state: '',
+        pincode: '',
+        relationship: entryForm.relationship.trim(),
+        occupation: entryForm.occupation.trim(),
+        phone_number: entryForm.phone_number.trim(),
+        notes: entryForm.notes,
         created_at: guestPerson?.created_at || now,
         updated_at: now,
       }
@@ -462,7 +473,7 @@ function App() {
         status: 'valid',
         version: 1,
         notes: entryForm.notes || '',
-        denomination_breakdown: entryForm.denominationRows.map((row) => {
+        denomination_breakdown: enteredDenominations.map((row) => {
           const denomination = DENOMINATIONS.find((item) => item.key === row.denominationKey)
           const unitAmount = denominationAmountPaise(row)
           return {
@@ -812,7 +823,7 @@ function App() {
               aria-label="Close navigation"
               onClick={() => setSidebarOpen(false)}
             >
-              <span aria-hidden="true">×</span>
+              <span aria-hidden="true">x</span>
             </button>
           </div>
         </div>
@@ -986,6 +997,7 @@ function App() {
             profileName={profileName}
             profileRole={profileRole}
             transactions={transactions}
+            isAdmin={isAdmin}
             onSelectUser={setSelectedUserId}
             onProfileNameChange={setProfileName}
             onProfileRoleChange={setProfileRole}
@@ -1054,7 +1066,7 @@ function App() {
                       <div>
                         <strong>{person.full_name}</strong>
                         <small>
-                          {[person.street, person.area || person.village, person.city, person.district, person.state, person.pincode].filter(Boolean).join(', ') || 'No location'}
+                          {[person.street, person.city || person.area || person.village].filter(Boolean).join(', ') || 'No location'}
                           {person.relationship ? ` · ${person.relationship}` : ''}
                           {person.occupation ? ` · ${person.occupation}` : ''}
                           {person.phone_number ? ` · ${person.phone_number}` : ''}

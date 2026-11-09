@@ -9,31 +9,28 @@ import {
     sortRecentTransactions,
 } from './ledger.js'
 
-test('finds normalized guest-name suggestions and limits the list to eight', () => {
+test('finds saved guest suggestions by phone number and limits the list to eight', () => {
     const persons = Array.from({ length: 9 }, (_, index) => ({
         person_id: `person-${index}`,
         full_name: `Vasi ${index}`,
+        phone_number: `98765432${index}`,
     }))
 
-    assert.equal(getGuestSuggestions(persons, ' vasi ').length, 8)
+    assert.equal(getGuestSuggestions(persons, '987-654-32').length, 8)
     assert.deepEqual(getGuestSuggestions(persons, ''), [])
+    assert.deepEqual(getGuestSuggestions(persons, 'vas'), [])
 })
 
-test('matches any name word by its first letter and ranks first-name matches higher', () => {
+test('ranks exact and leading phone matches before substring matches', () => {
     const persons = [
-        { person_id: 'last-name-match', full_name: 'Kavi Raja' },
-        { person_id: 'first-name-match', full_name: 'Vasi Kumar' },
-        { person_id: 'substring-only', full_name: 'Avar' },
+        { person_id: 'substring-match', phone_number: '919876543210' },
+        { person_id: 'starts-with-match', phone_number: '98765432109' },
+        { person_id: 'exact-match', phone_number: '987-654-3210' },
     ]
 
-    assert.equal(getGuestSuggestions(persons, 'v')[0].person_id, 'first-name-match')
     assert.deepEqual(
-        getGuestSuggestions(persons, 'r').map((person) => person.person_id),
-        ['last-name-match', 'first-name-match', 'substring-only']
-    )
-    assert.deepEqual(
-        getGuestSuggestions([{ person_id: 'vasi-raja', full_name: 'Vasi Raja' }], 'v r').map((person) => person.person_id),
-        ['vasi-raja']
+        getGuestSuggestions(persons, '9876543210').map((person) => person.person_id),
+        ['exact-match', 'starts-with-match', 'substring-match']
     )
 })
 

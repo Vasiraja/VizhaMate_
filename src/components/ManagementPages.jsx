@@ -26,7 +26,7 @@ export function FunctionsPage({
                         </select>
                         <input placeholder="Host / family name" value={functionForm.host_name} onChange={(event) => onFunctionFormChange((current) => ({ ...current, host_name: event.target.value }))} />
                         <input type="date" value={functionForm.function_date} onChange={(event) => onFunctionFormChange((current) => ({ ...current, function_date: event.target.value }))} />
-                        <TamilAddressFields idPrefix="function-address" address={functionForm} onChange={onFunctionFormChange} />
+                        <TamilAddressFields address={functionForm} onChange={onFunctionFormChange} />
                         <div className="form-actions">
                             <button type="submit">{editingFunctionId ? 'Save changes' : 'Create function'}</button>
                             {editingFunctionId && (
@@ -75,6 +75,7 @@ export function UsersPage({
     profileName,
     profileRole,
     transactions,
+    isAdmin,
     onSelectUser,
     onProfileNameChange,
     onProfileRoleChange,
@@ -130,8 +131,14 @@ export function UsersPage({
                                         <small>{user.role || 'Recorder'} · {giftCount} recorded gift{giftCount === 1 ? '' : 's'}</small>
                                     </div>
                                     <div className="management-actions">
-                                        <button type="button" className="secondary-button" onClick={() => onEditUser(user)}>Edit</button>
-                                        <button type="button" className="danger" onClick={() => onDeleteUser(user)}>Delete</button>
+                                        {isAdmin && (
+                                            <>
+                                                <button type="button" className="secondary-button" onClick={() => onEditUser(user)}>Edit</button>
+                                                {user.role !== 'Admin' && (
+                                                    <button type="button" className="danger" onClick={() => onDeleteUser(user)}>Delete</button>
+                                                )}
+                                            </>
+                                        )}
                                     </div>
                                 </li>
                             )

@@ -1,5 +1,5 @@
 export function formatTamilAddress(address) {
-    return [address.street, address.area, address.city, address.district, 'Tamil Nadu', address.pincode]
+    return [address.street, address.city || address.area]
         .filter(Boolean)
         .join(', ')
 }

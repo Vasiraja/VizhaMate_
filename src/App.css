@@ -534,16 +534,6 @@ button.danger {
   gap: 12px;
 }
 
-.denomination-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid #dce5ed;
-  border-radius: 8px;
-  background: #f8faf9;
-}
-
 .denomination-heading,
 .section-heading,
 .entry-history-main {
@@ -559,75 +549,6 @@ button.danger {
   color: #155d50;
   border: 1px solid #b9d9d0;
   border-radius: 6px;
-}
-
-.denomination-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(88px, 104px) minmax(140px, 180px) 38px;
-  align-items: center;
-  gap: 8px;
-}
-
-.denomination-row select,
-.denomination-row input {
-  min-width: 0;
-  width: 100%;
-}
-
-.denomination-row.has-custom-amount input[aria-label='Custom denomination value in rupees'] {
-  grid-column: 1;
-  grid-row: 2;
-}
-
-.denomination-row.has-custom-amount input[aria-label='Quantity'] {
-  grid-column: 2;
-  grid-row: 1;
-}
-
-.denomination-row-total {
-  grid-column: 3;
-  grid-row: 1;
-  justify-self: end;
-  text-align: right;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.remove-row-button {
-  grid-column: 4;
-  grid-row: 1;
-  justify-self: end;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  border-radius: 6px;
-  background: #fff;
-  border: 1px solid #d8e1ec;
-  color: #8f2929;
-  font-size: 1.25rem;
-}
-
-.denomination-grand-total {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(88px, 104px) minmax(140px, 180px) 38px;
-  align-items: center;
-  gap: 8px;
-  padding-top: 10px;
-  border-top: 1px solid #dce5ed;
-}
-
-.denomination-grand-total span {
-  grid-column: 1 / 3;
-}
-
-.denomination-grand-total strong {
-  grid-column: 3;
-  justify-self: end;
-  min-width: 140px;
-  text-align: right;
-  font-size: 1.2rem;
-  color: #155d50;
-  font-variant-numeric: tabular-nums;
 }
 
 .section-heading {
@@ -715,6 +636,20 @@ button.danger {
   gap: 8px;
 }
 
+.phone-entry-field,
+.cash-total-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-weight: 600;
+}
+
+.cash-total-field input {
+  cursor: pointer;
+  background: #f8faf9;
+  font-variant-numeric: tabular-nums;
+}
+
 .suggestion-item {
   background: #f8fafc;
   border: 1px solid #dfe7f2;
@@ -724,6 +659,99 @@ button.danger {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+}
+
+.suggestion-item.is-selected {
+  border-color: #16836f;
+  background: #eef8f5;
+}
+
+.selected-guest-note {
+  margin: 0;
+  color: #155d50;
+  font-size: 0.9rem;
+}
+
+.denomination-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(15 23 42 / 55%);
+}
+
+.denomination-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(100%, 560px);
+  max-height: min(85vh, 760px);
+  overflow: hidden;
+  padding: 20px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 20px 60px rgb(15 23 42 / 25%);
+}
+
+.denomination-dialog .denomination-heading {
+  flex: 0 0 auto;
+}
+
+.denomination-dialog h3,
+.denomination-dialog p {
+  margin: 0;
+}
+
+.denomination-dialog p {
+  margin-top: 4px;
+  color: #587084;
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+
+.denomination-dialog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.denomination-dialog-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px minmax(90px, 120px);
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 5px 0;
+  border-bottom: 1px solid #edf1f6;
+}
+
+.denomination-dialog-row input {
+  width: 100%;
+  min-width: 0;
+}
+
+.denomination-dialog-row strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.denomination-dialog-total {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #dce5ed;
+  font-weight: 700;
+}
+
+.denomination-dialog-total strong {
+  color: #155d50;
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .mini-list,
@@ -963,6 +991,16 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .denomination-dialog {
+    padding: 16px;
+  }
+
+  .denomination-dialog-row {
+    grid-template-columns: minmax(0, 1fr) 76px minmax(74px, 95px);
+    gap: 7px;
+    font-size: 0.9rem;
+  }
+
   .active-recorder-panel {
     grid-template-columns: 1fr;
   }
@@ -978,55 +1016,6 @@ th {
   .transaction-detail-layout {
     grid-template-columns: 1fr;
     gap: 10px;
-  }
-
-  .denomination-row {
-    grid-template-columns: minmax(0, 1fr) minmax(84px, 104px) 38px;
-  }
-
-  .denomination-row select {
-    grid-column: 1 / 3;
-    grid-row: 1;
-  }
-
-  .denomination-row input[aria-label='Custom denomination value in rupees'] {
-    grid-column: 1;
-    grid-row: 2;
-  }
-
-  .denomination-row:not(.has-custom-amount) input[aria-label='Quantity'] {
-    grid-column: 1 / 3;
-    grid-row: 2;
-  }
-
-  .denomination-row.has-custom-amount input[aria-label='Quantity'] {
-    grid-column: 2;
-    grid-row: 2;
-  }
-
-  .denomination-row-total {
-    grid-column: 1 / 3;
-    grid-row: 3;
-    text-align: right;
-  }
-
-  .remove-row-button {
-    grid-column: 3;
-    grid-row: 1;
-    width: 38px;
-  }
-
-  .denomination-grand-total {
-    grid-template-columns: minmax(0, 1fr) minmax(84px, 104px) 38px;
-  }
-
-  .denomination-grand-total span {
-    grid-column: 1;
-  }
-
-  .denomination-grand-total strong {
-    grid-column: 2;
-    min-width: 0;
   }
 
   .entry-history-main {
